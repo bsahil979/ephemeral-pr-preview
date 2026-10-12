@@ -96,10 +96,12 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" << EOF
+          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "bash -s -- '${PR}' '${SHA}'" << 'EOF'
             set -euo pipefail
+            PR="$1"
+            SHA="$2"
             TARGET_DIR="/home/${USER}/app-pr-${PR}"
-            cd "\$TARGET_DIR"
+            cd "$TARGET_DIR"
             chmod +x scripts/*.sh
             ./scripts/deploy.sh "${PR}" "${SHA}" "preview-app:pr-${PR}"
           EOF
@@ -115,19 +117,21 @@ jobs:
             const previewUrl = `http://${ec2Host}/pr-${prNumber}/`;
             const healthUrl = `http://${ec2Host}/pr-${prNumber}/health`;
 
-            const commentBody = `### 🚀 Ephemeral Preview Environment Deployed!
-
-| Metric | Details |
-| :--- | :--- |
-| **Status** | 🟢 **Active & Healthy** |
-| **Preview URL** | [${previewUrl}](${previewUrl}) |
-| **Health Check** | [${healthUrl}](${healthUrl}) |
-| **Routing Prefix** | \`/pr-${prNumber}/\` |
-| **Docker Container** | \`preview-pr-${prNumber}\` |
-| **Host Loopback Port** | \`127.0.0.1:${port}\` |
-| **Git Commit** | \`${commitSha}\` |
-
-*This environment is ephemeral and will be automatically torn down when this pull request is closed or merged.*`;
+            const commentBody = [
+              '### 🚀 Ephemeral Preview Environment Deployed!',
+              '',
+              '| Metric | Details |',
+              '| :--- | :--- |',
+              '| **Status** | 🟢 **Active & Healthy** |',
+              `| **Preview URL** | [${previewUrl}](${previewUrl}) |`,
+              `| **Health Check** | [${healthUrl}](${healthUrl}) |`,
+              `| **Routing Prefix** | \`/pr-${prNumber}/\` |`,
+              `| **Docker Container** | \`preview-pr-${prNumber}\` |`,
+              `| **Host Loopback Port** | \`127.0.0.1:${port}\` |`,
+              `| **Git Commit** | \`${commitSha}\` |`,
+              '',
+              '*This environment is ephemeral and will be automatically torn down when this pull request is closed or merged.*'
+            ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -186,26 +190,26 @@ jobs:
           PORT: ${{ secrets.EC2_PORT || '22' }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" << EOF
+          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "bash -s -- '${PR}'" << 'EOF'
             set -euo pipefail
-            PR="${PR}"
-            
+            PR="$1"
+
             # Guard protected manual preview environments
-            if [ "\$PR" -eq 1000 ] 2>/dev/null; then
+            if [ "$PR" -eq 1000 ] 2>/dev/null; then
               echo "[!] Protection: PR #1000 is reserved as a permanent manual test environment. Skipping teardown."
               exit 0
             fi
 
             TARGET_DIR="/home/${USER}/app-pr-${PR}"
 
-            if [ -f "\${TARGET_DIR}/scripts/teardown.sh" ]; then
-              chmod +x "\${TARGET_DIR}/scripts/teardown.sh"
-              "\${TARGET_DIR}/scripts/teardown.sh" "\$PR"
-              rm -rf "\$TARGET_DIR"
+            if [ -f "${TARGET_DIR}/scripts/teardown.sh" ]; then
+              chmod +x "${TARGET_DIR}/scripts/teardown.sh"
+              "${TARGET_DIR}/scripts/teardown.sh" "$PR"
+              rm -rf "$TARGET_DIR"
             else
               echo "[!] Teardown script not found in directory; executing standalone cleanup..."
-              docker rm -f "preview-pr-\${PR}" >/dev/null 2>&1 || true
-              sudo rm -f "/etc/nginx/previews/pr-\${PR}.conf"
+              docker rm -f "preview-pr-${PR}" >/dev/null 2>&1 || true
+              sudo rm -f "/etc/nginx/previews/pr-${PR}.conf"
               sudo nginx -t && (sudo nginx -s reload || sudo systemctl reload nginx)
             fi
             docker image prune -f >/dev/null 2>&1 || true
@@ -216,12 +220,14 @@ jobs:
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
-            const commentBody = `### 🛑 Ephemeral Preview Environment Decommissioned
-
-The pull request has been closed or merged. The associated ephemeral preview environment has been completely torn down:
-- Docker container \`preview-pr-${prNumber}\` stopped and removed.
-- Host reverse proxy configuration \`/pr-${prNumber}/\` removed.
-- Host resources and ports reclaimed.`;
+            const commentBody = [
+              '### 🛑 Ephemeral Preview Environment Decommissioned',
+              '',
+              'The pull request has been closed or merged. The associated ephemeral preview environment has been completely torn down:',
+              `- Docker container \`preview-pr-${prNumber}\` stopped and removed.`,
+              `- Host reverse proxy configuration \`/pr-${prNumber}/\` removed.`,
+              '- Host resources and ports reclaimed.'
+            ].join('\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
