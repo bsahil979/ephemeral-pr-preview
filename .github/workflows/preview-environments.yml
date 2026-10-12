@@ -1,0 +1,215 @@
+name: Ephemeral PR Preview Environments
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ============================================================================
+  # Stage 1: CI Testing & Docker Validation (Runs on all PRs including forks)
+  # ============================================================================
+  ci-test-and-validate:
+    name: "CI: Lint, Test & Image Build"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Test Suite
+        run: npm test
+
+      - name: Validate Multi-Stage Dockerfile Build
+        run: |
+          docker build -t ephemeral-preview:ci-validate .
+
+      - name: Validate Container Startup & Health Endpoint
+        run: |
+          docker run -d --name ci-health-check -p 3000:3000 ephemeral-preview:ci-validate
+          sleep 4
+          curl --fail http://localhost:3000/health || (docker logs ci-health-check && exit 1)
+          docker rm -f ci-health-check
+
+  # ============================================================================
+  # Stage 2: Deploy Isolated Preview to EC2 (Trusted Same-Repo PRs Only)
+  # ============================================================================
+  deploy-preview:
+    name: "CD: Deploy Preview to EC2"
+    needs: ci-test-and-validate
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure SSH Authentication
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          PORT: ${{ secrets.EC2_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync Source Code to Host
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          PORT: ${{ secrets.EC2_PORT || '22' }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          TARGET_DIR="/home/${USER}/app-pr-${PR}"
+          ssh -p "$PORT" "${USER}@${HOST}" "mkdir -p '${TARGET_DIR}'"
+          rsync -avz -e "ssh -p ${PORT}" --delete \
+            --exclude 'node_modules' \
+            --exclude '.git' \
+            --exclude 'nginx-previews' \
+            ./ "${USER}@${HOST}:${TARGET_DIR}/"
+
+      - name: Execute Deployment on Docker Host
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          PORT: ${{ secrets.EC2_PORT || '22' }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          ssh -p "$PORT" "${USER}@${HOST}" << EOF
+            set -euo pipefail
+            TARGET_DIR="/home/${USER}/app-pr-${PR}"
+            cd "\$TARGET_DIR"
+            chmod +x scripts/*.sh
+            ./scripts/deploy.sh "${PR}" "${SHA}" "preview-app:pr-${PR}"
+          EOF
+
+      - name: Post or Update Preview URL Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const ec2Host = '${{ secrets.EC2_HOST }}';
+            const commitSha = context.payload.pull_request.head.sha.substring(0, 7);
+            const port = 30000 + prNumber;
+            const previewUrl = `http://${ec2Host}/pr-${prNumber}/`;
+            const healthUrl = `http://${ec2Host}/pr-${prNumber}/health`;
+
+            const commentBody = `### 🚀 Ephemeral Preview Environment Deployed!
+
+| Metric | Details |
+| :--- | :--- |
+| **Status** | 🟢 **Active & Healthy** |
+| **Preview URL** | [${previewUrl}](${previewUrl}) |
+| **Health Check** | [${healthUrl}](${healthUrl}) |
+| **Routing Prefix** | \`/pr-${prNumber}/\` |
+| **Docker Container** | \`preview-pr-${prNumber}\` |
+| **Host Loopback Port** | \`127.0.0.1:${port}\` |
+| **Git Commit** | \`${commitSha}\` |
+
+*This environment is ephemeral and will be automatically torn down when this pull request is closed or merged.*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes('Ephemeral Preview Environment')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: commentBody
+              });
+            }
+
+  # ============================================================================
+  # Stage 3: Teardown Isolated Preview on PR Closed/Merged
+  # ============================================================================
+  teardown-preview:
+    name: "CD: Teardown Preview on EC2"
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Configure SSH Authentication
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          PORT: ${{ secrets.EC2_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Execute Teardown on Docker Host
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+          PORT: ${{ secrets.EC2_PORT || '22' }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          ssh -p "$PORT" "${USER}@${HOST}" << EOF
+            set -euo pipefail
+            PR="${PR}"
+            TARGET_DIR="/home/${USER}/app-pr-${PR}"
+
+            if [ -f "\${TARGET_DIR}/scripts/teardown.sh" ]; then
+              chmod +x "\${TARGET_DIR}/scripts/teardown.sh"
+              "\${TARGET_DIR}/scripts/teardown.sh" "\$PR"
+              rm -rf "\$TARGET_DIR"
+            else
+              echo "[!] Teardown script not found in directory; executing standalone cleanup..."
+              docker rm -f "preview-pr-\${PR}" >/dev/null 2>&1 || true
+              sudo rm -f "/etc/nginx/previews/pr-\${PR}.conf"
+              sudo nginx -t && (sudo nginx -s reload || sudo systemctl reload nginx)
+            fi
+            docker image prune -f >/dev/null 2>&1 || true
+          EOF
+
+      - name: Post Teardown Confirmation Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const commentBody = `### 🛑 Ephemeral Preview Environment Decommissioned
+
+The pull request has been closed or merged. The associated ephemeral preview environment has been completely torn down:
+- Docker container \`preview-pr-${prNumber}\` stopped and removed.
+- Host reverse proxy configuration \`/pr-${prNumber}/\` removed.
+- Host resources and ports reclaimed.`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: commentBody
+            });

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="__BASE_HREF__">
+  <title>__APP_TITLE__ | PR Preview</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>">
+</head>
+<body data-theme="__THEME_NAME__">
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo-icon">🚀</div>
+        <div>
+          <h1 class="title">Ephemeral PR Preview</h1>
+          <p class="subtitle">Automated Git-Push-to-Live-Preview on EC2 via GitHub Actions & Nginx</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="badge badge-env">__APP_ENV__</span>
+        <span class="badge badge-pr">PR __PR_NUMBER__</span>
+      </div>
+    </header>
+
+    <!-- Visual Feature Banner demonstrating PR version differentiation -->
+    <div class="feature-banner">
+      <div class="feature-badge">⚡ ACTIVE PR FEATURE</div>
+      <h2 class="feature-title">__FEATURE_NAME__</h2>
+      <p class="feature-desc">
+        This preview container was dynamically spun up for Git commit <code>__GIT_SHA__</code>.
+        Routed through host Nginx at <code>__BASE_PATH__/</code>.
+      </p>
+    </div>
+
+    <!-- Metrics and Status Grid -->
+    <div class="grid-cards">
+      <!-- Card 1: Environment Metadata -->
+      <div class="card">
+        <div class="card-header">
+          <h3>📦 Environment Specs</h3>
+          <span class="status-indicator online"></span>
+        </div>
+        <div class="meta-list">
+          <div class="meta-item">
+            <span class="meta-label">PR Number</span>
+            <span class="meta-value bold" id="val-pr">__PR_NUMBER__</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Git Commit</span>
+            <span class="meta-value code">__GIT_SHA__</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">App Version</span>
+            <span class="meta-value">v__APP_VERSION__</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Internal Port</span>
+            <span class="meta-value code">:__SERVER_PORT__</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Nginx Route</span>
+            <span class="meta-value code">__BASE_PATH__/</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2: Visual Comparison Showcase -->
+      <div class="card">
+        <div class="card-header">
+          <h3>🎨 Visual Variation</h3>
+          <span class="badge badge-theme">Theme: __THEME_NAME__</span>
+        </div>
+        <p class="card-text">
+          Reviewers can visually confirm frontend changes without pulling code or setting up a local database.
+        </p>
+        <div class="theme-swatch-box">
+          <div class="swatch current-swatch">
+            <span class="swatch-label">Current Accent</span>
+            <span class="swatch-name">__THEME_NAME__</span>
+          </div>
+          <div class="swatch-info">
+            <p>Each PR branch can declare custom features, themes, or layouts via environment overrides.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3: Reverse Proxy Architecture -->
+      <div class="card">
+        <div class="card-header">
+          <h3>🔀 Dynamic Routing Info</h3>
+          <span class="badge">Nginx Proxy</span>
+        </div>
+        <div class="routing-visual">
+          <div class="route-node">Browser</div>
+          <div class="route-arrow">➔ http://EC2_IP__BASE_PATH__/</div>
+          <div class="route-node">Nginx (:80)</div>
+          <div class="route-arrow">➔ proxy_pass 127.0.0.1:__SERVER_PORT__</div>
+          <div class="route-node">Docker (:__SERVER_PORT__)</div>
+        </div>
+        <p class="sub-text">
+          Container Name: <code>preview-pr-__PR_RAW__</code> | Isolated localhost port.
+        </p>
+      </div>
+    </div>
+
+    <!-- Live Health Check & API Inspector -->
+    <div class="inspector-section">
+      <div class="inspector-header">
+        <div>
+          <h3>🩺 Live Health Check Inspector</h3>
+          <p class="subtitle">Query the isolated <code>/health</code> endpoint to test container responsiveness.</p>
+        </div>
+        <div class="inspector-actions">
+          <button id="btn-health" class="btn btn-primary">Ping /health</button>
+          <button id="btn-info" class="btn btn-secondary">Fetch /api/info</button>
+        </div>
+      </div>
+
+      <div class="console-box">
+        <div class="console-topbar">
+          <span class="console-dot red"></span>
+          <span class="console-dot yellow"></span>
+          <span class="console-dot green"></span>
+          <span class="console-title" id="console-endpoint">/health</span>
+          <span class="latency-badge" id="latency-badge">Click ping to test</span>
+        </div>
+        <pre class="console-body"><code id="console-output">{
+  "status": "UP",
+  "message": "Click 'Ping /health' to test live endpoint"
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- Architecture & Lifecycle Explainer -->
+    <div class="card lifecycle-card">
+      <h3>🔄 Ephemeral Lifecycle in this Project</h3>
+      <div class="lifecycle-steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <strong>Git Push to PR Branch</strong>
+            <p>Developer pushes code or opens PR against <code>main</code>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <strong>GitHub Actions CI & Validation</strong>
+            <p>Runs <code>npm test</code>, builds Docker image, executes security trust check.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <strong>Zero-Downtime EC2 Deploy</strong>
+            <p>Spins up <code>preview-pr-N</code> on port <code>30000+N</code>, generates dynamic Nginx snippet, runs <code>nginx -t</code>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <strong>Automated Teardown on Merge/Close</strong>
+            <p>When PR is merged or closed, GitHub Actions destroys container & removes Nginx route.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Ephemeral PR Preview Environments &bull; DevOps Mini-Project &bull; Node.js 22 + Docker + Nginx + GitHub Actions</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

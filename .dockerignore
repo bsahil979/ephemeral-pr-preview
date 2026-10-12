@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.git
+.github
+tests
+*.md
+.env*
+.vscode
+.idea
+Dockerfile*
+docker-compose*.yml
+nginx-previews
+coverage

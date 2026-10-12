@@ -1,0 +1,32 @@
+{
+  "name": "ephemeral-pr-previews",
+  "version": "1.0.0",
+  "description": "Ephemeral PR Preview Environments: Automated Git-Push-to-Live-Preview Deployment and Teardown Using GitHub Actions, Docker, and Dynamic Nginx Reverse Proxy Routing",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/*.test.js",
+    "test:verbose": "node --test --test-reporter=spec tests/*.test.js"
+  },
+  "keywords": [
+    "devops",
+    "docker",
+    "nginx",
+    "github-actions",
+    "ephemeral-environments",
+    "preview-environments",
+    "ci-cd"
+  ],
+  "author": "College DevOps Project Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
