@@ -24,7 +24,8 @@
     "express": "^4.21.2"
   },
   "devDependencies": {
-    "supertest": "^7.0.0"
+    "supertest": "^7.0.0",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=20.0.0"
