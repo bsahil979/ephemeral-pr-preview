@@ -30,7 +30,7 @@ echo "[+] Target deploy user: ${DEPLOY_USER}"
 # 1. Update system packages
 echo "[+] Updating apt repositories..."
 apt-get update -y
-apt-get install -y ca-certificates curl gnupg lsb-release ufw
+apt-get install -y ca-certificates curl gnupg lsb-release ufw rsync
 
 # 2. Install Docker Engine
 echo "[+] Installing Docker..."
@@ -179,14 +179,18 @@ echo "--------------------------------------------------------------------"
 echo "1. Retrieve your EC2 public IP:"
 echo "   curl -s ifconfig.me"
 echo ""
-echo "2. Add the following repository secrets in GitHub:"
+echo "2. Generate pinned SSH host key entry for SSH_KNOWN_HOSTS:"
+echo "   ssh-keyscan -H \$(curl -s ifconfig.me)"
+echo ""
+echo "3. Add the following repository secrets in GitHub:"
 echo "   (Settings -> Secrets and variables -> Actions -> New repository secret)"
 echo ""
 echo "   - EC2_HOST        : Your EC2 Public IPv4 (e.g. 54.x.x.x)"
 echo "   - EC2_USER        : ${DEPLOY_USER}"
 echo "   - SSH_PRIVATE_KEY : The private SSH key (.pem) used to connect to EC2"
+echo "   - SSH_KNOWN_HOSTS : The pinned host key line from step 2"
 echo ""
-echo "3. Ensure EC2 Security Group allows Inbound:"
+echo "4. Ensure EC2 Security Group allows Inbound:"
 echo "   - Port 22  (SSH)  : Your GitHub Actions IP or 0.0.0.0/0"
 echo "   - Port 80  (HTTP) : 0.0.0.0/0 (For browser preview access)"
 echo "===================================================================="

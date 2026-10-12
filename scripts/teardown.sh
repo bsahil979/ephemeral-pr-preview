@@ -25,6 +25,12 @@ if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+# Guard protected manual preview environments (e.g., PR #1000 or preview-test)
+if [ "$PR_NUMBER" -eq 1000 ] 2>/dev/null; then
+  echo "[!] Protection: PR #1000 is reserved as a permanent manual test environment. Skipping teardown."
+  exit 0
+fi
+
 CONTAINER_NAME="preview-pr-${PR_NUMBER}"
 CONF_FILE="/etc/nginx/previews/pr-${PR_NUMBER}.conf"
 

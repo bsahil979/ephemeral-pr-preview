@@ -141,16 +141,19 @@ Navigate to **GitHub Repository** -> **Settings** -> **Secrets and variables** -
 | `EC2_HOST` | `54.xxx.xxx.xxx` | Public IPv4 address or Elastic IP of the EC2 instance. |
 | `EC2_USER` | `ubuntu` | Non-root deployment user. |
 | `SSH_PRIVATE_KEY` | `-----BEGIN RSA PRIVATE KEY-----...` | Private key matching EC2's `~/.ssh/authorized_keys`. |
+| `SSH_KNOWN_HOSTS` | `54.xxx.xxx.xxx ssh-ed25519 AAAAC3N...` | Pinned EC2 SSH host key for strict host key checking (`ssh-keyscan -H <EC2_HOST>`). |
 | `EC2_PORT` | `22` *(Optional)* | SSH port (defaults to 22 if omitted). |
 
 ---
 
 ## 🔒 Security Architecture & Trust Boundary
 
-1. **No Dangerous Docker Socket Exposure**: The Docker daemon TCP socket (`2375`) is never exposed over the network. All container actions run through an authenticated SSH tunnel.
-2. **Least Privilege on Host**: The deploy user belongs to the `docker` group and has passwordless sudo restricted exclusively to `/usr/sbin/nginx -t` and `/usr/sbin/nginx -s reload`.
-3. **Trust Boundary Isolation**: GitHub Actions uses standard `pull_request` triggers (never insecure `pull_request_target`). Forked pull requests cannot access repository secrets; they run tests and Docker validations inside the runner, skipping the deployment stage.
-4. **Deterministic Localhost Binding**: Preview containers bind strictly to `127.0.0.1:${PORT}`, meaning internal ports are never reachable from the public internet without passing through Nginx.
+1. **No Dangerous Docker Socket Exposure**: The Docker daemon TCP socket (`2375`) is never exposed over the network. All container actions run through an authenticated, encrypted SSH tunnel.
+2. **Pinned Host Key & Strict Verification**: Replaced runtime `ssh-keyscan` with a pinned `SSH_KNOWN_HOSTS` GitHub secret and strict host key checking (`-o StrictHostKeyChecking=yes`), eliminating Machine-in-the-Middle (MitM) risks.
+3. **Collaborator Authorization & Trust Boundary**: The lab repository permits deployments exclusively from trusted collaborators (`OWNER`, `MEMBER`, `COLLABORATOR`) on same-repository branches. Outside contributors and fork PRs execute automated tests in the GitHub runner sandbox, but are strictly blocked from accessing EC2 deployment credentials.
+4. **Least Privilege on Host**: The deploy user belongs to the `docker` group and has passwordless sudo restricted exclusively to `/usr/sbin/nginx -t` and `/usr/sbin/nginx -s reload`.
+5. **Deterministic Loopback Binding**: Preview containers bind strictly to `127.0.0.1:${PORT}`, ensuring internal ports are never accessible directly from the internet.
+6. **Permanent Environment Protection**: Permanent manual test environments (e.g. `preview-test` / route `pr-1000`) are protected by explicit safeguards against automated teardown.
 
 ---
 

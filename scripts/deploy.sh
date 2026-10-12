@@ -46,6 +46,13 @@ fi
 
 # Deterministic port allocation: 30000 + PR_NUMBER
 PORT=$((30000 + PR_NUMBER))
+
+# Validate host port range (1024 - 65535)
+if [ "$PORT" -lt 1024 ] || [ "$PORT" -gt 65535 ]; then
+  echo "[-] Error: Computed port ${PORT} is out of valid range (1024-65535)"
+  exit 1
+fi
+
 CONTAINER_NAME="preview-pr-${PR_NUMBER}"
 CONF_DIR="/etc/nginx/previews"
 CONF_FILE="${CONF_DIR}/pr-${PR_NUMBER}.conf"
@@ -62,23 +69,27 @@ echo "  Theme:        ${THEME_NAME}"
 echo "  Feature:      ${FEATURE_NAME}"
 echo "===================================================================="
 
-# 1. Build Docker image if not present
-if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
-  if [ -f Dockerfile ]; then
-    echo "[+] Building Docker image '${IMAGE_NAME}'..."
-    docker build -t "$IMAGE_NAME" .
-  else
-    echo "[-] Error: Image '${IMAGE_NAME}' not found and Dockerfile does not exist."
-    exit 1
-  fi
+# 1. Build Docker image with target tag
+if [ -f Dockerfile ]; then
+  echo "[+] Building Docker image '${IMAGE_NAME}' (commit: ${GIT_SHA})..."
+  docker build -t "$IMAGE_NAME" .
+elif ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+  echo "[-] Error: Dockerfile not found and image '${IMAGE_NAME}' does not exist."
+  exit 1
 else
-  echo "[✓] Docker image '${IMAGE_NAME}' exists."
+  echo "[✓] Using pre-existing Docker image '${IMAGE_NAME}'."
 fi
 
 # 2. Stop & remove any existing container for this PR (Idempotency)
 if docker ps -a --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}\$"; then
   echo "[+] Removing existing container '${CONTAINER_NAME}'..."
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+fi
+
+# Verify port is not colliding with another process on loopback
+if ss -tuln 2>/dev/null | grep -Eq "127\.0\.0\.1:${PORT}\b"; then
+  echo "[-] Error: Loopback port 127.0.0.1:${PORT} is already in use by another process!"
+  exit 1
 fi
 
 # 3. Start isolated Docker container
@@ -181,7 +192,29 @@ else
   exit 1
 fi
 
-# 7. Print Deployment Summary
+# 7. Validate Nginx reverse proxy routing to application health check
+echo "[+] Validating Nginx reverse proxy route at http://127.0.0.1/pr-${PR_NUMBER}/health..."
+PROXY_MAX=10
+PROXY_HEALTH=false
+for i in $(seq 1 $PROXY_MAX); do
+  if curl -sf -o /dev/null "http://127.0.0.1/pr-${PR_NUMBER}/health"; then
+    PROXY_HEALTH=true
+    echo "[✓] Nginx proxy routing verified healthy."
+    break
+  fi
+  sleep 1
+done
+
+if [ "$PROXY_HEALTH" != "true" ]; then
+  echo "[-] Error: Reverse proxy route http://127.0.0.1/pr-${PR_NUMBER}/health failed health verification!"
+  echo "[-] Rolling back PR config and container..."
+  sudo rm -f "$CONF_FILE"
+  sudo nginx -s reload || sudo systemctl reload nginx
+  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  exit 1
+fi
+
+# 8. Print Deployment Summary
 HOST_IP="$(curl -s --max-time 2 ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo 'SERVER_IP')"
 
 echo "===================================================================="

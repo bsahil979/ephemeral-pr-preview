@@ -11,11 +11,12 @@ permissions:
 
 jobs:
   # ============================================================================
-  # Stage 1: CI Testing & Docker Validation (Runs on all PRs including forks)
+  # Stage 1: CI Testing & Docker Validation (Runs for opened, synchronize, reopened)
   # ============================================================================
   ci-test-and-validate:
     name: "CI: Lint, Test & Image Build"
     runs-on: ubuntu-latest
+    if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
 
     steps:
       - name: Checkout Code
@@ -45,28 +46,32 @@ jobs:
           docker rm -f ci-health-check
 
   # ============================================================================
-  # Stage 2: Deploy Isolated Preview to EC2 (Trusted Same-Repo PRs Only)
+  # Stage 2: Deploy Isolated Preview to EC2 (Trusted Same-Repo Collaborator PRs Only)
   # ============================================================================
   deploy-preview:
     name: "CD: Deploy Preview to EC2"
     needs: ci-test-and-validate
     runs-on: ubuntu-latest
-    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: |
+      contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action) &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Configure SSH Authentication
+      - name: Configure SSH Authentication with Pinned Host Key
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          HOST: ${{ secrets.EC2_HOST }}
-          PORT: ${{ secrets.EC2_PORT || '22' }}
+          KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Sync Source Code to Host
         env:
@@ -76,8 +81,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           TARGET_DIR="/home/${USER}/app-pr-${PR}"
-          ssh -p "$PORT" "${USER}@${HOST}" "mkdir -p '${TARGET_DIR}'"
-          rsync -avz -e "ssh -p ${PORT}" --delete \
+          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "mkdir -p '${TARGET_DIR}'"
+          rsync -avz -e "ssh -p ${PORT} -o StrictHostKeyChecking=yes" --delete \
             --exclude 'node_modules' \
             --exclude '.git' \
             --exclude 'nginx-previews' \
@@ -91,7 +96,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          ssh -p "$PORT" "${USER}@${HOST}" << EOF
+          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" << EOF
             set -euo pipefail
             TARGET_DIR="/home/${USER}/app-pr-${PR}"
             cd "\$TARGET_DIR"
@@ -156,19 +161,23 @@ jobs:
   teardown-preview:
     name: "CD: Teardown Preview on EC2"
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: |
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
 
     steps:
-      - name: Configure SSH Authentication
+      - name: Configure SSH Authentication with Pinned Host Key
         env:
           SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          HOST: ${{ secrets.EC2_HOST }}
-          PORT: ${{ secrets.EC2_PORT || '22' }}
+          KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts
+          echo "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Execute Teardown on Docker Host
         env:
@@ -177,9 +186,16 @@ jobs:
           PORT: ${{ secrets.EC2_PORT || '22' }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          ssh -p "$PORT" "${USER}@${HOST}" << EOF
+          ssh -p "$PORT" -o StrictHostKeyChecking=yes "${USER}@${HOST}" << EOF
             set -euo pipefail
             PR="${PR}"
+            
+            # Guard protected manual preview environments
+            if [ "\$PR" -eq 1000 ] 2>/dev/null; then
+              echo "[!] Protection: PR #1000 is reserved as a permanent manual test environment. Skipping teardown."
+              exit 0
+            fi
+
             TARGET_DIR="/home/${USER}/app-pr-${PR}"
 
             if [ -f "\${TARGET_DIR}/scripts/teardown.sh" ]; then

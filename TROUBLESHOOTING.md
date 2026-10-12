@@ -86,6 +86,12 @@ sequenceDiagram
   2. Verify secret `EC2_USER` matches the AMI user (for Ubuntu 24.04, it is `ubuntu`).
   3. Verify permissions on the EC2 host: `chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys`.
 
+### 6. Host Key Verification Failed (`SSH_KNOWN_HOSTS`)
+* **Symptom**: SSH fails with `Host key verification failed`.
+* **Root Cause**: Strict host key checking (`-o StrictHostKeyChecking=yes`) protects against MitM attacks. If the EC2 instance was re-created or its IP reassigned, the pinned host key in secret `SSH_KNOWN_HOSTS` no longer matches the target.
+* **Fix Applied**:
+  Run `ssh-keyscan -H <NEW_EC2_IP>` on your workstation and update the `SSH_KNOWN_HOSTS` secret in GitHub Repository Settings.
+
 ---
 
 ## 🎓 College Viva Voce Questions & Answers
