@@ -187,3 +187,6 @@ Navigate to **GitHub Repository** -> **Settings** -> **Secrets and variables** -
 ├── DEMO.md                           # Step-by-step presentation walkthrough
 └── TROUBLESHOOTING.md                # Debugging guide & College Viva Q&A
 ```
+
+## Cyan Preview Demonstration
+This branch demonstrates automatic PR preview deployment.
